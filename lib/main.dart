@@ -57,7 +57,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
     selectedColor = Colors.black;
-    strokeWidth = 2.0;
+    strokeWidth = 1.0;
   }
 
   @override
