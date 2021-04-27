@@ -1,5 +1,6 @@
 import 'dart:html';
 import 'dart:ui';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
@@ -8,6 +9,7 @@ import 'package:flutter/rendering.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:zoom_widget/zoom_widget.dart';
+import 'package:collapsible_sidebar/collapsible_sidebar.dart';
 
 void main() {
   runApp(MyApp());
@@ -31,6 +33,7 @@ class MyApp extends StatelessWidget {
         // is not restarted.
         primarySwatch: Colors.blueGrey,
       ),
+      debugShowCheckedModeBanner: false,
       home: MyHomePage(),
     );
   }
@@ -48,8 +51,13 @@ class MyHomePage extends StatefulWidget {
   _MyHomePageState createState() => _MyHomePageState();
 }
 
+enum CanvasState { pan, draw }
+
 class _MyHomePageState extends State<MyHomePage> {
   List<PointsDrawing> points = [];
+  CanvasState canvasState = CanvasState.draw;
+
+  Offset offset = Offset(0, 0);
   Color selectedColor;
   double strokeWidth;
 
@@ -64,6 +72,8 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     final double width = MediaQuery.of(context).size.width;
     final double height = MediaQuery.of(context).size.height;
+    final double cx = width / 2;
+    final double cy = height / 2;
 
     return Scaffold(
       body: Stack(
@@ -84,35 +94,43 @@ class _MyHomePageState extends State<MyHomePage> {
                       child: GestureDetector(
                         onPanDown: (details) {
                           this.setState(() {
-                            points.add(PointsDrawing(
-                                points: details.localPosition,
-                                paint: Paint()
-                                  ..strokeCap = StrokeCap.round
-                                  ..isAntiAlias = true
-                                  ..color = selectedColor
-                                  ..strokeWidth = strokeWidth));
+                            if (canvasState == CanvasState.draw) {
+                              points.add(PointsDrawing(
+                                  points: details.localPosition - offset,
+                                  paint: Paint()
+                                    ..strokeCap = StrokeCap.round
+                                    ..isAntiAlias = true
+                                    ..color = selectedColor
+                                    ..strokeWidth = strokeWidth));
+                            }
                           });
                         },
                         onPanUpdate: (details) {
                           this.setState(() {
-                            points.add(PointsDrawing(
-                                points: details.localPosition,
-                                paint: Paint()
-                                  ..strokeCap = StrokeCap.round
-                                  ..isAntiAlias = true
-                                  ..color = selectedColor
-                                  ..strokeWidth = strokeWidth));
+                            if (canvasState == CanvasState.pan) {
+                              offset += details.delta;
+                            } else {
+                              points.add(PointsDrawing(
+                                  points: details.localPosition - offset,
+                                  paint: Paint()
+                                    ..strokeCap = StrokeCap.round
+                                    ..isAntiAlias = true
+                                    ..color = selectedColor
+                                    ..strokeWidth = strokeWidth));
+                            }
                           });
                         },
                         onPanEnd: (details) {
                           this.setState(() {
-                            points.add(null);
+                            if (canvasState == CanvasState.draw) {
+                              points.add(null);
+                            }
                           });
                         },
                         child: SizedBox.expand(
                           child: ClipRRect(
                             child: CustomPaint(
-                              painter: MyCanvas(points: points),
+                              painter: MyCanvas(points: points, offset: offset),
                             ),
                           ),
                         ),
@@ -125,31 +143,49 @@ class _MyHomePageState extends State<MyHomePage> {
                     child: Row(
                       children: <Widget>[
                         IconButton(
+                            //Button that switches between drawing and panning
                             icon: Icon(
-                              Icons.color_lens,
-                              color: selectedColor,
-                              semanticLabel: 'Colour Finder',
+                              Icons.edit,
+                              color: canvasState == CanvasState.draw
+                                  ? selectedColor
+                                  : Colors.black,
                             ),
                             onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (_) => AlertDialog(
-                                  title: const Text('Colour Finder'),
-                                  content: SingleChildScrollView(
-                                    child: ColorPicker(
-                                      pickerColor: selectedColor,
-                                      showLabel: true,
-                                      onColorChanged: (color) {
-                                        this.setState(() {
-                                          selectedColor = color;
-                                        });
-                                      },
-                                    ),
+                              this.setState(() {
+                                canvasState = canvasState == CanvasState.draw
+                                    ? CanvasState.pan
+                                    : CanvasState.draw;
+                              });
+                            }),
+                        IconButton(
+                          //Icon for selecting colour for brush
+                          icon: Icon(
+                            Icons.color_lens,
+                            color: selectedColor,
+                            semanticLabel: 'Colour Finder',
+                          ),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                title: const Text('Colour Finder'),
+                                content: SingleChildScrollView(
+                                  child: ColorPicker(
+                                    pickerColor: selectedColor,
+                                    showLabel: true,
+                                    onColorChanged: (color) {
+                                      this.setState(() {
+                                        selectedColor = color;
+                                      });
+                                    },
                                   ),
                                 ),
-                              );
-                            }),
+                              ),
+                            );
+                          },
+                        ),
                         Expanded(
+                          //Slider for choosing the size brush stroke width
                           child: Slider(
                             min: 1.0,
                             max: 20.0,
@@ -165,6 +201,7 @@ class _MyHomePageState extends State<MyHomePage> {
                           ),
                         ),
                         IconButton(
+                            //Button for clearing the canvas
                             icon: Icon(
                               Icons.layers_clear,
                               color: Colors.black,
@@ -173,7 +210,7 @@ class _MyHomePageState extends State<MyHomePage> {
                               this.setState(() {
                                 points.clear();
                               });
-                            })
+                            }),
                       ],
                     ),
                   )
@@ -187,9 +224,15 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 }
 
+/*
+The class that extends the CustomPainter interface to determine the size, look and features of the canvas
+and the way the points (brush) are drawn to the screen in relation to the user's gestures
+ */
 class MyCanvas extends CustomPainter {
-  MyCanvas({this.points});
   List<PointsDrawing> points;
+  Offset offset;
+
+  MyCanvas({@required this.points, this.offset});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -200,15 +243,42 @@ class MyCanvas extends CustomPainter {
 
     for (int i = 0; i < points.length - 1; i++) {
       if (points[i] != null && points[i + 1] != null) {
-        canvas.drawLine(
-            points[i].points, points[i + 1].points, points[i].paint);
+        canvas.drawLine(points[i].points + offset,
+            points[i + 1].points + offset, points[i].paint);
       } else if (points[i] != null && points[i + 1] == null) {
         canvas.drawPoints(
-            PointMode.points, [points[i].points], points[i].paint);
+            PointMode.points, [points[i].points + offset], points[i].paint);
       }
     }
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class ShapePainter extends CustomPainter {
+  Offset _startPosition;
+  Offset _shapeSize;
+  ShapePainter(this._startPosition, this._shapeSize);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (_startPosition == null || _shapeSize == null) return;
+
+    double startPosX = _startPosition.dx;
+    double startPosY = _startPosition.dy;
+    double endPosX = _shapeSize.dx;
+    double endPosY = _shapeSize.dy;
+    double circleRadius =
+        (sqrt(pow((startPosX - endPosX), 2) + pow((startPosY - endPosY), 2)));
+
+    canvas.drawCircle(
+        _startPosition, circleRadius, new Paint()..color = Colors.blue);
+    _startPosition = null;
+    _shapeSize = null;
+  }
+
+  @override
+  bool shouldRepaint(ShapePainter other) =>
+      other._startPosition != _startPosition;
 }
